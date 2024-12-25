@@ -29,29 +29,59 @@ class KPIService {
     await prefs.setString(_kpiKey, jsonEncode(currentKPIs));
   }
 
-  static Future<void> saveLatestKPIs(List<Map<String, dynamic>> kpis) async {
+  static Future<void> saveLatestKPIs(Map<String, dynamic> apiData) async {
     try {
-      if (kpis.isEmpty) {
-        await clearLatestKPIs();
-        return;
-      }
+      final List<Map<String, dynamic>> processedKPIs = [];
+      
+      apiData.forEach((category, data) {
+        if (data is Map<String, dynamic> && data['tests'] is Map<String, dynamic>) {
+          final tests = data['tests'] as Map<String, dynamic>;
+          
+          tests.forEach((testName, testValue) {
+            if (testValue is Map<String, dynamic>) {
+              // Handle nested objects like Serum Electrolytes
+              testValue.forEach((subTestName, subTestValue) {
+                processedKPIs.add({
+                  'title': testName + ' - ' + subTestName,
+                  'value': subTestValue.toString(),
+                  'category': category,
+                  'unit': _extractUnit(subTestValue.toString()),
+                });
+              });
+            } else {
+              processedKPIs.add({
+                'title': testName,
+                'value': testValue.toString(),
+                'category': category,
+                'unit': _extractUnit(testValue.toString()),
+              });
+            }
+          });
+        }
+      });
 
       final prefs = await SharedPreferences.getInstance();
-      final normalizedKpis = kpis.map((kpi) {
-        final category = CategoryMappings.getCategoryForMetric(kpi['title'].toString());
-        return {
-          'title': kpi['title']?.toString() ?? '',
-          'value': kpi['value']?.toString() ?? 'N/A',
-          'previousValue': kpi['previousValue']?.toString() ?? 'N/A',
-          'unit': kpi['unit']?.toString() ?? '',
-          'category': category ?? 'Other',
-        };
-      }).toList();
-      
-      await prefs.setString(_latestKPIsKey, jsonEncode(normalizedKpis));
+      await prefs.setString(_latestKPIsKey, jsonEncode(processedKPIs));
+      print('Saved ${processedKPIs.length} KPIs to storage');
     } catch (e) {
       print('Error saving KPIs: $e');
     }
+  }
+
+  static String _extractUnit(String value) {
+    // Common units in medical tests
+    final units = [
+      'mg/dl', 'g/dl', 'mmol/L', 'µIU/mL', 'ng/mL', 'µg/dL',
+      'mm/hr', 'cells/cmm', '%', 'fL', 'pg', 'U/L', 'million/cmm',
+      'Lakh/cmm', 'mm of Hg', 'kg/m2', 'cms', 'kg'
+    ];
+
+    for (var unit in units) {
+      if (value.toLowerCase().contains(unit.toLowerCase())) {
+        return unit;
+      }
+    }
+    return '';
   }
 
   static Future<List<Map<String, dynamic>>> getLatestKPIs() async {
@@ -102,5 +132,23 @@ class KPIService {
     
     final normalizedTitle = title.toLowerCase().trim();
     return titleMap[normalizedTitle] ?? title;
+  }
+
+  static Future<List<Map<String, dynamic>>> getCategoryKPIs(String category) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final kpisJson = prefs.getString(_latestKPIsKey);
+      if (kpisJson != null) {
+        final List<dynamic> allKPIs = jsonDecode(kpisJson);
+        return allKPIs
+            .where((kpi) => kpi['category'] == category)
+            .map((kpi) => Map<String, dynamic>.from(kpi))
+            .toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error getting category KPIs: $e');
+      return [];
+    }
   }
 }

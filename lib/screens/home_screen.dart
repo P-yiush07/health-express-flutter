@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_application_1/services/report_comparison_service.dart';
 import '../widgets/kpi_indicator.dart';
 import '../widgets/ai_chat_button.dart';
 import '../widgets/reports_button.dart';
@@ -19,6 +20,13 @@ import '../widgets/categories_grid.dart';
 import '../utils/date_utils.dart';
 import '../services/ai_service.dart';
 import 'dart:async';
+import 'package:http/http.dart' as http;
+import '../services/api_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../widgets/manage_screen_content.dart';
+import '../services/report_preference_service.dart';
+import '../widgets/report_history_dialog.dart';
+import 'dart:math';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key, required this.title}) : super(key: key);
@@ -36,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<KpiIndicator> kpis = [];
   final _categoriesKey = GlobalKey<CategoriesGridState>();
   late StreamSubscription<void> _refreshSubscription;
+  int _selectedIndex = 0;
 
   @override
   void initState() {
@@ -59,8 +68,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _initialize() async {
     await AIService.initializeStoredValues();
-    await _loadKPIsFromStorage();
+
+    // Load active report data if exists
+    final activeReport = await ReportPreferenceService.getActiveReport();
+    if (activeReport != null) {
+      await _loadReportData(activeReport);
+    } else {
+      await _loadKPIsFromStorage();
+    }
+
     await _loadPdfFiles();
+
+    // Get the log of total reports available
+
+      await ReportComparisonService.getAvailableReportsCount();
+
+    // Load saved category data
+    final savedCategoryData = await ReportPreferenceService.getCategoryData();
+    if (savedCategoryData.isNotEmpty) {
+      await _processCategoriesData(savedCategoryData);
+    }
 
     // Add debug logging for category summaries
     final summaries = await AIService.getStoredCategorySummaries();
@@ -87,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final latestKPIs = await KPIService.getLatestKPIs();
       print('Loaded KPIs from storage: $latestKPIs');
-      
+
       if (latestKPIs.isNotEmpty) {
         final kpiWidgets = _createKPIWidgets(latestKPIs);
         setState(() {
@@ -114,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadPdfFiles() async {
     final manifestContent = await rootBundle.loadString('AssetManifest.json');
     final Map<String, dynamic> manifestMap = json.decode(manifestContent);
-    
+
     final pdfPaths = manifestMap.keys
         .where((String key) => key.contains('assets/') && key.endsWith('.pdf'))
         .toList();
@@ -130,9 +157,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }).toList();
 
       // Sort by date in descending order
-      previousReports.sort((a, b) => 
-        (b['date'] as DateTime).compareTo(a['date'] as DateTime)
-      );
+      previousReports.sort(
+          (a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
 
       // Format dates after sorting
       previousReports = previousReports.map((report) {
@@ -175,94 +201,176 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _refreshData() async {
+  Future<void> _refreshData() async {
     setState(() {
       isLoading = true;
     });
 
-    // Show loading dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return const AlertDialog(
-          title: Text('Loading'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 20),
-              Text('Comparing recent reports...'),
-            ],
-          ),
-        );
-      },
-    );
-
     try {
-      // Trigger comparison of recent reports
-      final comparisonResult = await AIService.compareRecentReports();
-
-      // Close the loading dialog
-      if (!mounted) return;
-      Navigator.of(context).pop();
-
-      // Show results in a new dialog
-      if (comparisonResult.containsKey('comparison')) {
-        _showComparisonDialog(comparisonResult['comparison']);
-      } else if (comparisonResult.containsKey('error')) {
-        _showErrorDialog(comparisonResult['error']);
+      final activeReport = await ReportPreferenceService.getActiveReport();
+      if (activeReport == null) {
+        throw Exception('No active report selected. Please select a report first.');
       }
 
-      // Reload KPIs from storage after AI update
-      await _loadKPIsFromStorage();
+      // Debug print
+      print('Active report asset path: $activeReport');
+      
+      final data = await ApiService.fetchMedicalTests();
+      print('Received medical tests data: $data');
+
+      // Process data for KPI indicators
+      final vitalsData = data['Vitals']?['tests'];
+      final kpiData = await _processVitalsForKPIs(vitalsData, data);
+
+      // Update KPIs and Categories simultaneously
+      setState(() {
+        kpis = _createKPIWidgets(kpiData);
+        if (_categoriesKey.currentState != null) {
+          _categoriesKey.currentState!.updateCategoryData(data);
+          _categoriesKey.currentState!.refreshGrid();
+        }
+      });
+
+      // Save data in background
+      await Future.wait([
+        ReportPreferenceService.saveReportData(activeReport, {
+          'kpis': kpiData,
+          'categories': data,
+        }),
+        ReportPreferenceService.saveCategoryData(data),
+      ]);
+
     } catch (e) {
-      // Handle any errors
-      if (!mounted) return;
-      Navigator.of(context).pop(); // Close loading dialog
-      _showErrorDialog('Error comparing reports: $e');
+      print('Error in _refreshData: $e');
+      _showErrorDialog(e.toString().replaceAll('Exception: ', ''));
     } finally {
+      setState(() {
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _processVitalsForKPIs(
+      dynamic vitalsData, Map<String, dynamic> fullData) async {
+    // Handle the new normalized structure
+    final Map<String, dynamic> safeVitalsData = 
+        (fullData['vitals']?['tests'] is Map<String, dynamic>) 
+        ? fullData['vitals']['tests'] 
+        : {};
+    
+    // Get glucose data from the new structure
+    String glucoseValue = 'N/A';
+    if (fullData['glucose']?['tests'] != null) {
+      final glucoseTests = fullData['glucose']['tests'];
+      // Try to get fasting glucose using the predefined test key
+      glucoseValue = glucoseTests['fasting_glucose']?['value']?.toString() ?? 'N/A';
+    }
+    
+    // Get previous values from comparison report
+    final comparisonReport = await ReportPreferenceService.getComparisonReport();
+    Map<String, dynamic> previousValues = {};
+    
+    if (comparisonReport != null) {
+      final reportDataMap = await ReportPreferenceService.getReportDataMap();
+      final previousData = reportDataMap[comparisonReport];
+      if (previousData != null && previousData['categories'] != null) {
+        final prevVitals = previousData['categories']['vitals']?['tests'];
+        final prevGlucose = previousData['categories']['glucose']?['tests'];
+        
+        previousValues = {
+          'Heart Rate': prevVitals?['pulse_rate']?['value'],
+          'Blood Pressure': prevVitals?['blood_pressure']?['value'],
+          'Fasting Glucose': prevGlucose?['fasting_glucose']?['value'],
+          'BMI': prevVitals?['bmi']?['value'],
+        };
+      }
+    }
+
+    return [
+      {
+        'title': 'Heart Rate',
+        'value': safeVitalsData['pulse_rate']?['value'] ?? 'N/A',
+        'unit': 'bpm',
+        'previousValue': previousValues['Heart Rate'],
+      },
+      {
+        'title': 'Blood Pressure',
+        'value': safeVitalsData['blood_pressure']?['value'] ?? 'N/A',
+        'unit': 'mmHg',
+        'previousValue': previousValues['Blood Pressure'],
+      },
+      {
+        'title': 'Fasting Glucose',
+        'value': glucoseValue,
+        'unit': 'mg/dl',
+        'previousValue': previousValues['Fasting Glucose'],
+      },
+      {
+        'title': 'BMI',
+        'value': safeVitalsData['bmi']?['value'] ?? 'N/A',
+        'unit': 'kg/m2',
+        'previousValue': previousValues['BMI'],
+      },
+    ];
+  }
+
+  Future<void> _processCategoriesData(Map<String, dynamic> categories) async {
+    try {
+      final vitalsData = categories['Vitals']?['tests'];
+      final processedKpiData = await _processVitalsForKPIs(vitalsData, categories);
+      
       if (mounted) {
         setState(() {
-          isLoading = false;
+          kpis = _createKPIWidgets(processedKpiData);
         });
       }
+    } catch (e) {
+      print('Error processing categories data: $e');
     }
   }
 
   List<KpiIndicator> _createKPIWidgets(List<Map<String, dynamic>> kpiData) {
-    print('Creating KPI widgets with data: $kpiData');
-
-    // Define the required KPI types with their default values
     final requiredKPIs = {
-      'Heart Rate': {'unit': 'bpm', 'icon': Icons.favorite, 'color': Colors.redAccent},
-      'Blood Pressure': {'unit': 'mmHg', 'icon': Icons.show_chart, 'color': Colors.blueAccent},
-      'Blood Sugar': {'unit': 'mg/dL', 'icon': Icons.water_drop, 'color': Colors.orangeAccent},
-      'BMI': {'unit': '', 'icon': Icons.person, 'color': Colors.greenAccent},
+      'Heart Rate': {
+        'unit': 'bpm',
+        'icon': Icons.favorite,
+        'color': Colors.redAccent
+      },
+      'Blood Pressure': {
+        'unit': 'mmHg',
+        'icon': Icons.show_chart,
+        'color': Colors.blueAccent
+      },
+      'Fasting Glucose': {
+        'unit': 'mg/dl',
+        'icon': Icons.water_drop,
+        'color': Colors.orangeAccent
+      },
+      'BMI': {
+        'unit': 'kg/m2',
+        'icon': Icons.person,
+        'color': Colors.greenAccent
+      },
     };
 
     return requiredKPIs.entries.map((entry) {
-      // Find matching KPI data, ignoring case
       final kpi = kpiData.firstWhere(
-        (k) => k['title'].toString().toLowerCase().contains(entry.key.toLowerCase()),
+        (k) => k['title']
+            .toString()
+            .toLowerCase()
+            .contains(entry.key.toLowerCase()),
         orElse: () => <String, dynamic>{
           'title': entry.key,
           'value': 'N/A',
-          'previousValue': 'N/A',
           'unit': entry.value['unit'],
+          'previousValue': null,
         },
       );
 
-      print('Found KPI for ${entry.key}: $kpi');
-
-      // Handle special case for Blood Pressure format
-      String displayValue = kpi['value']?.toString() ?? 'N/A';
-      String displayPrevValue = kpi['previousValue']?.toString() ?? 'N/A';
-
       return KpiIndicator(
         title: entry.key,
-        value: displayValue,
-        previousValue: displayPrevValue,
+        value: kpi['value']?.toString() ?? 'N/A',
+        previousValue: kpi['previousValue']?.toString(),
         unit: entry.value['unit'] as String,
         icon: entry.value['icon'] as IconData,
         color: entry.value['color'] as Color,
@@ -273,69 +381,30 @@ class _HomeScreenState extends State<HomeScreen> {
   List<KpiIndicator> _getDefaultKPIs() {
     return [
       KpiIndicator(
-        title: 'Heart Rate',
-        value: 'N/A',
-        previousValue: 'N/A',
-        unit: 'bpm',
-        icon: Icons.favorite,
-        color: Colors.redAccent
-      ),
+          title: 'Heart Rate',
+          value: 'N/A',
+          unit: 'bpm',
+          icon: Icons.favorite,
+          color: Colors.redAccent),
       KpiIndicator(
-        title: 'Blood Pressure',
-        value: 'N/A',
-        previousValue: 'N/A',
-        unit: 'mmHg',
-        icon: Icons.show_chart,
-        color: Colors.blueAccent
-      ),
+          title: 'Blood Pressure',
+          value: 'N/A',
+          unit: 'mmHg',
+          icon: Icons.show_chart,
+          color: Colors.blueAccent),
       KpiIndicator(
-        title: 'Blood Sugar',
-        value: 'N/A',
-        previousValue: 'N/A',
-        unit: 'mg/dL',
-        icon: Icons.water_drop,
-        color: Colors.orangeAccent
-      ),
+          title: 'Fasting Glucose',
+          value: 'N/A',
+          unit: 'mg/dL',
+          icon: Icons.water_drop,
+          color: Colors.orangeAccent),
       KpiIndicator(
-        title: 'BMI',
-        value: 'N/A',
-        previousValue: 'N/A',
-        unit: '',
-        icon: Icons.person,
-        color: Colors.greenAccent
-      ),
+          title: 'BMI',
+          value: 'N/A',
+          unit: '',
+          icon: Icons.person,
+          color: Colors.greenAccent),
     ];
-  }
-
-  void _showComparisonDialog(String comparison) {
-    if (!mounted) return;
-    
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Report Comparison'),
-          content: SingleChildScrollView(
-            child: Text(comparison),
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('View History'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                AIService.showStoredValues(context);
-              },
-            ),
-            TextButton(
-              child: const Text('Close'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-          ],
-        );
-      },
-    );
   }
 
   void _showErrorDialog(String error) {
@@ -359,58 +428,43 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showStoredValues() async {
-    await AIService.showStoredValues(context);
-    // Refresh KPIs after stored values dialog is closed
-    await _loadKPIsFromStorage();
+  void _showStoredValues() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return ReportHistoryDialog(
+          onHistoryDeleted: () async {
+            // Get the active report path first
+            final activeReport =
+                await ReportPreferenceService.getActiveReport();
+            if (activeReport != null) {
+              // Refresh the data in HomeScreen
+              _loadReportData(activeReport);
+            }
+            setState(() {
+              kpis = _getDefaultKPIs();
+            });
+            // Clear category data
+            if (_categoriesKey.currentState != null) {
+              _categoriesKey.currentState!.updateCategoryData({});
+              _categoriesKey.currentState!.refreshGrid();
+            }
+          },
+        );
+      },
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    String userName = "Asuttosh Dash"; 
-    
-    const double sectionSpacing = 20.0;
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
 
-    // Example data source
-    final kpiData = [
-      {
-        'title': 'Heart Rate',
-        'currentValue': '72',
-        'previousValue': '75',
-        'unit': 'bpm',
-        'icon': Icons.favorite,
-        'color': Colors.redAccent,
-      },
-      {
-        'title': 'Blood Pressure',
-        'currentValue': '120/80',
-        'previousValue': '115/75',
-        'unit': 'mmHg',
-        'icon': Icons.show_chart,
-        'color': Colors.blueAccent,
-      },
-      {
-        'title': 'Blood Sugar',
-        'currentValue': '95',
-        'previousValue': '100',
-        'unit': 'mg/dL',
-        'icon': Icons.water_drop,
-        'color': Colors.orangeAccent,
-      },
-      {
-        'title': 'BMI',
-        'currentValue': '22.5',
-        'previousValue': '23.0',
-        'unit': '',
-        'icon': Icons.person,
-        'color': Colors.greenAccent,
-      },
-    ];
-
-    return Scaffold(
-      body: CustomPaint(
-        painter: BackgroundPainter(),
-        child: PageStorage(
+  Widget _getSelectedScreen() {
+    switch (_selectedIndex) {
+      case 0:
+        return PageStorage(
           bucket: _bucket,
           child: ListView(
             key: const PageStorageKey<String>('homeScreenListView'),
@@ -432,7 +486,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         Text(
-                          userName,
+                          "Asuttosh Dash",
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 24,
@@ -449,12 +503,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(width: 4),
                         IconButton(
-                          icon: const Icon(Icons.smart_toy_outlined, color: Colors.white),
+                          icon: const Icon(Icons.smart_toy_outlined,
+                              color: Colors.white),
                           onPressed: _openChatScreen,
                         ),
                         const SizedBox(width: 4),
                         IconButton(
-                          icon: const Icon(Icons.description_outlined, color: Colors.white),
+                          icon: const Icon(Icons.description_outlined,
+                              color: Colors.white),
                           onPressed: _openReportsScreen,
                         ),
                       ],
@@ -471,7 +527,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         TextButton.icon(
                           style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 0),
                             minimumSize: Size.zero,
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             visualDensity: VisualDensity.compact,
@@ -493,31 +550,32 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                     const SizedBox(height: 3),
-                    isLoading 
-                      ? const Center(
-                          child: Column(
-                            children: [
-                              CircularProgressIndicator(),
-                              SizedBox(height: 16),
-                              Text(
-                                'Loading KPIs...',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                            ],
+                    isLoading
+                        ? const Center(
+                            child: Column(
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 16),
+                                Text(
+                                  'Loading KPIs...',
+                                  style: TextStyle(color: Colors.white70),
+                                ),
+                              ],
+                            ),
+                          )
+                        : GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: 15,
+                              mainAxisSpacing: 15,
+                              childAspectRatio: 1.2,
+                            ),
+                            itemCount: kpis.length,
+                            itemBuilder: (context, index) => kpis[index],
                           ),
-                        )
-                      : GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            crossAxisSpacing: 15,
-                            mainAxisSpacing: 15,
-                            childAspectRatio: 1.2,
-                          ),
-                          itemCount: kpis.length,
-                          itemBuilder: (context, index) => kpis[index],
-                        ),
                   ],
                 ),
               ),
@@ -526,7 +584,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20.0),
                 child: CategoriesGrid(key: _categoriesKey),
               ),
-              const SizedBox(height: sectionSpacing),
+              const SizedBox(height: 20),
               if (previousReports.isNotEmpty)
                 PreviousReportsList(
                   reports: previousReports,
@@ -536,17 +594,119 @@ class _HomeScreenState extends State<HomeScreen> {
                 )
               else
                 const Center(
-                  child: Text(
-                    'No previous reports available',
-                    style: TextStyle(color: Colors.white)
-                  )
-                ),
+                    child: Text('No previous reports available',
+                        style: TextStyle(color: Colors.white))),
               const SizedBox(height: 30),
             ],
           ),
+        );
+      case 1:
+        return ManageScreenContent(
+          onReportChanged: (String reportPath) {
+            _loadReportData(reportPath);
+          },
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: CustomPaint(
+        painter: BackgroundPainter(),
+        child: _getSelectedScreen(),
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [
+              Color(0xFF6B4DE6), // Deep purple
+              Color(0xFF9C42E3), // Medium purple
+            ],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          items: const <BottomNavigationBarItem>[
+            BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard_outlined),
+              activeIcon: Icon(Icons.dashboard),
+              label: 'Dashboard',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.settings_outlined),
+              activeIcon: Icon(Icons.settings),
+              label: 'Manage',
+            ),
+          ],
+          currentIndex: _selectedIndex,
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          selectedItemColor: Colors.white,
+          unselectedItemColor: Colors.white70,
+          selectedLabelStyle: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 12,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontWeight: FontWeight.normal,
+            fontSize: 12,
+          ),
+          type: BottomNavigationBarType.fixed,
+          onTap: _onItemTapped,
         ),
       ),
     );
   }
-}
 
+  Future<void> _loadReportData(String reportPath) async {
+    if (!mounted) return;
+    
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final reportData = await ReportPreferenceService.getReportDataMap();
+      final data = reportData[reportPath];
+
+      if (data != null) {
+        if (data['categories'] != null) {
+          final categoryData = Map<String, dynamic>.from(data['categories']);
+          await ReportPreferenceService.saveCategoryData(categoryData);
+          await _processCategoriesData(categoryData);
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            kpis = _getDefaultKPIs();
+          });
+        }
+        await ReportPreferenceService.clearCategoryData();
+        if (_categoriesKey.currentState != null) {
+          _categoriesKey.currentState!.updateCategoryData({});
+          _categoriesKey.currentState!.refreshGrid();
+        }
+      }
+    } catch (e) {
+      print('Error loading report data: $e');
+      _showErrorDialog('Error loading report data: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
+  }
+}

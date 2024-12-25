@@ -1,0 +1,114 @@
+I/flutter ( 8868): New normalization: {"vitals":{"summary":"","tests":{"Body Temperature":"not found","Blood Pressure":"110/70 mmHg","Pulse Rate/Heart Rate":"not found","Respiratory Rate":"not found","Oxygen Saturation":"not found","Height":"164.00 cms","Weight":"65.00 kg","Body Mass Index":"24.17 kg/m2","Waist Circumference":"not found","Pain Scale Assessment":"not found","Pulse Pressure":"not found","Mean Arterial Pressure":"not found","Heart Rate Variability":"not found","Capillary Refill Time":"not found","Orthostatic Blood Pressure":"not found","Peak Expiratory Flow Rate":"not found","End-Tidal Carbon Dioxide":"not found","Forced Vital Capacity":"not found","Forced Expiratory Volume in 1 Second":"not found","Plethysmograph Waveform":"not found","Glasgow Coma Scale":"not found","Level of Consciousness":"not found","Pupillary Response":"not found","Grip Strength":"not found","Blood Glucose Level":"not found"}}} 
+
+
+matching the following json from the api response:
+
+final predefinedTests = {
+      "vitals": {
+        "temperature": {
+          "full_name": "Body Temperature",
+          "medical_abbreviation": "Temp"
+        },
+        "blood_pressure": {
+          "full_name": "Blood Pressure",
+          "medical_abbreviation": "BP"
+        },
+        "pulse_rate": {
+          "full_name": "Pulse Rate/Heart Rate",
+          "medical_abbreviation": "PR/HR"
+        },
+        "respiratory_rate": {
+          "full_name": "Respiratory Rate",
+          "medical_abbreviation": "RR"
+        },
+        "oxygen_saturation": {
+          "full_name": "Oxygen Saturation",
+          "medical_abbreviation": "SpO2"
+        },
+        "height": {
+          "full_name": "Height",
+          "medical_abbreviation": "Ht"
+        },
+        "weight": {
+          "full_name": "Weight",
+          "medical_abbreviation": "Wt"
+        },
+        "body_mass_index": {
+          "full_name": "Body Mass Index",
+          "medical_abbreviation": "BMI"
+        },
+        "waist_circumference": {
+          "full_name": "Waist Circumference",
+          "medical_abbreviation": "WC"
+        },
+        "pain_scale": {
+          "full_name": "Pain Scale Assessment",
+          "medical_abbreviation": "Pain Score"
+        },
+        "pulse_pressure": {
+          "full_name": "Pulse Pressure",
+          "medical_abbreviation": "PP"
+        },
+        "mean_arterial_pressure": {
+          "full_name": "Mean Arterial Pressure",
+          "medical_abbreviation": "MAP"
+        },
+        "heart_rate_variability": {
+          "full_name": "Heart Rate Variability",
+          "medical_abbreviation": "HRV"
+        },
+        "capillary_refill": {
+          "full_name": "Capillary Refill Time",
+          "medical_abbreviation": "CRT"
+        },
+        "orthostatic_blood_pressure": {
+          "full_name": "Orthostatic Blood Pressure",
+          "medical_abbreviation": "Orthostatic BP"
+        },
+        "peak_flow": {
+          "full_name": "Peak Expiratory Flow Rate",
+          "medical_abbreviation": "PEFR"
+        },
+        "end_tidal_co2": {
+          "full_name": "End-Tidal Carbon Dioxide",
+          "medical_abbreviation": "EtCO2"
+        },
+        "forced_vital_capacity": {
+          "full_name": "Forced Vital Capacity",
+          "medical_abbreviation": "FVC"
+        },
+        "forced_expiratory_volume": {
+          "full_name": "Forced Expiratory Volume in 1 Second",
+          "medical_abbreviation": "FEV1"
+        },
+        "pulse_oximetry_waveform": {
+          "full_name": "Plethysmograph Waveform",
+          "medical_abbreviation": "Pleth"
+        },
+        "glasgow_coma_scale": {
+          "full_name": "Glasgow Coma Scale",
+          "medical_abbreviation": "GCS"
+        },
+        "level_of_consciousness": {
+          "full_name": "Level of Consciousness",
+          "medical_abbreviation": "LOC"
+        },
+        "pupillary_response": {
+          "full_name": "Pupillary Response",
+          "medical_abbreviation": "Pupils"
+        },
+        "grip_strength": {
+          "full_name": "Grip Strength",
+          "medical_abbreviation": "Grip"
+        },
+        "blood_glucose": {
+          "full_name": "Blood Glucose Level",
+          "medical_abbreviation": "BGL"
+        }
+      }
+    };
+
+
+After Creating separate functions for each category, the normalized data is:
+
+I/flutter ( 8868): New normalization: {"vitals":{"summary":"","tests":{"Body Temperature":"not found","Blood Pressure":"110/70 mmHg","Pulse Rate/Heart Rate":"not found","Respiratory Rate":"not found","Oxygen Saturation":"not found","Height":"164.00 cms","Weight":"65.00 kg","Body Mass Index":"24.17 kg/m2","Waist Circumference":"not found","Pain Scale Assessment":"not found","Pulse Pressure":"not found","Mean Arterial Pressure":"not found","Heart Rate Variability":"not found","Capillary Refill Time":"not found","Orthostatic Blood Pressure":"not found","Peak Expiratory Flow Rate":"not found","End-Tidal Carbon Dioxide":"not found","Forced Vital Capacity":"not found","Forced Expiratory Volume in 1 Second":"not found","Plethysmograph Waveform":"not found","Glasgow Coma Scale":"not found","Level of Consciousness":"not found","Pupillary Response":"not found","Grip Strength":"not found","Blood Glucose Level":"not found"}}} 

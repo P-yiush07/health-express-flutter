@@ -225,15 +225,51 @@ class _CategoryChatScreenState extends State<CategoryChatScreen> {
         children: [
           Container(
             width: double.infinity,
-            color: const Color(0xFF5c258d).withOpacity(0.03),
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-            child: Text(
-              'Ask questions about your ${widget.categoryTitle.toLowerCase()} data',
-              style: TextStyle(
-                color: Colors.grey[600],
-                fontSize: 13,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFF5c258d).withOpacity(0.08),
+                  const Color(0xFF5c258d).withOpacity(0.03),
+                ],
               ),
-              textAlign: TextAlign.center,
+              border: Border(
+                top: BorderSide(
+                  color: const Color(0xFF5c258d).withOpacity(0.1),
+                ),
+                bottom: BorderSide(
+                  color: const Color(0xFF5c258d).withOpacity(0.1),
+                ),
+              ),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5c258d).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    Icons.tips_and_updates_outlined,  // Changed to a more suggestive icon
+                    size: 16,
+                    color: const Color(0xFF5c258d),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Ask questions about your ${widget.categoryTitle.toLowerCase()} data',
+                  style: TextStyle(
+                    color: const Color(0xFF5c258d).withOpacity(0.8),
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -288,7 +324,7 @@ class _CategoryChatScreenState extends State<CategoryChatScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  "AI is thinking",
+                  "LabAI is thinking",
                   style: TextStyle(
                     color: Color(0xFF5c258d),
                     fontWeight: FontWeight.bold,
@@ -417,8 +453,8 @@ class _CategoryChatScreenState extends State<CategoryChatScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF5c258d).withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFF8F6FE),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: const Color(0xFF5c258d).withOpacity(0.1),
         ),
@@ -426,50 +462,132 @@ class _CategoryChatScreenState extends State<CategoryChatScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Category KPI Values:',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF5c258d),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Category KPI Values:',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF5c258d),
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          ...widget.kpiData.map((kpi) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  kpi['title'],
-                  style: const TextStyle(
-                    color: Colors.black87,
-                    fontWeight: FontWeight.w500,
+          ...widget.kpiData.map((kpi) {
+            String valueStr = kpi['value'].toString();
+            String? previousValueStr = kpi['previousValue']?.toString();
+            
+            String unit = kpi['unit']?.toString() ?? '';
+            if (unit.isEmpty) {
+              unit = _extractUnit(valueStr);
+            }
+            
+            String cleanValue = valueStr.replaceAll(unit, '').trim();
+            String? cleanPreviousValue = previousValueStr?.replaceAll(unit, '').trim();
+
+            return Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: const Color(0xFF5c258d).withOpacity(0.05),
                   ),
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Current: ${kpi['value']} ${kpi['unit']}',
-                      style: const TextStyle(
-                        color: Colors.black87,
-                      ),
-                    ),
-                    if (kpi['previousValue'] != null && kpi['previousValue'] != 'N/A')
-                      Text(
-                        'Previous: ${kpi['previousValue']} ${kpi['unit']}',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 13,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          kpi['title'],
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF444444),
+                          ),
                         ),
                       ),
-                  ],
-                ),
-              ],
-            ),
-          )).toList(),
+                      if (unit.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5c258d).withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            unit,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF5c258d),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Current: ',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          Text(
+                            cleanValue,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF5c258d),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (cleanPreviousValue != null)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              'Prev: ',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              cleanPreviousValue,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF5c258d),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
         ],
       ),
     );
+  }
+
+  String _extractUnit(String value) {
+    // Updated regex to better capture units
+    final unitRegex = RegExp(r'[0-9.]+\s*([a-zA-Z/%]+/?[a-zA-Z]*|mm\s*Hg)$');
+    final match = unitRegex.firstMatch(value);
+    return match?.group(1)?.trim() ?? '';
   }
 }

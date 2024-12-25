@@ -3,40 +3,229 @@ import '../widgets/comparison_indicator.dart';
 import '../services/ai_service.dart';
 import '../screens/chat_screen.dart';
 import '../widgets/ai_floating_chat_button.dart';
+import '../services/report_comparison_service.dart';
+import '../services/reference_range_service.dart';
+import 'dart:math';
+import '../services/report_preference_service.dart';
 
-class CategoryDetailScreen extends StatelessWidget {
+class CategoryDetailScreen extends StatefulWidget {
   final String title;
   final IconData icon;
   final Color color;
   final List<Map<String, dynamic>> kpiData;
+  final String? summary;
 
   const CategoryDetailScreen({
-    Key? key,
+    super.key,
     required this.title,
     required this.icon,
     required this.color,
     required this.kpiData,
-  }) : super(key: key);
+    this.summary,
+  });
+
+  @override
+  State<CategoryDetailScreen> createState() => _CategoryDetailScreenState();
+}
+
+class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
+  bool hasMultipleReports = false;
+  Map<String, dynamic> previousValues = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    // Get the comparison report path
+    final comparisonReportPath = await ReportPreferenceService.getComparisonReport();
+    
+    if (comparisonReportPath != null) {
+      print('Comparison report selected: $comparisonReportPath');
+      final prevValues = await ReportComparisonService.getPreviousValues(widget.kpiData);
+      print('Previous values received: $prevValues');
+      
+      setState(() {
+        hasMultipleReports = true;
+        previousValues = prevValues;
+      });
+    } else {
+      setState(() {
+        hasMultipleReports = false;
+        previousValues = {};
+      });
+    }
+  }
+
+  String _generateCategoryContent() {
+    final buffer = StringBuffer();
+    buffer.writeln('Category: ${widget.title}');
+    buffer.writeln('Summary: ${widget.summary ?? 'No summary available'}');
+    buffer.writeln('');
+    buffer.writeln('Latest Measurements:');
+    
+    for (final kpi in widget.kpiData) {
+      buffer.writeln('${kpi['title']}:');
+      buffer.writeln('Current Value: ${kpi['value']} ${kpi['unit'] ?? ''}');
+      buffer.writeln('');
+    }
+    
+    return buffer.toString();
+  }
+
+  IconData _getIconForMetric(String metricName) {
+    final metricIcons = {
+      // Vital Signs
+      'Blood Pressure': Icons.favorite,
+      'Heart Rate': Icons.monitor_heart,
+      'Temperature': Icons.thermostat,
+      'Pulse': Icons.monitor_heart_outlined,
+      'BMI': Icons.monitor_weight,
+      'Weight': Icons.scale,
+      'Height': Icons.height,
+      'SpO2': Icons.air,
+      'Oxygen': Icons.air_outlined,
+      
+      // Blood Tests
+      'Glucose': Icons.water_drop,
+      'Blood Sugar': Icons.water_drop,
+      'Hemoglobin': Icons.bloodtype,
+      'Cholesterol': Icons.medication_liquid,
+      'Triglycerides': Icons.medication_liquid_outlined,
+      'Creatinine': Icons.science,
+      'Urea': Icons.science_outlined,
+      
+      // Electrolytes
+      'Sodium': Icons.battery_full,
+      'Potassium': Icons.battery_charging_full,
+      'Chloride': Icons.electric_bolt,
+      'Calcium': Icons.medication,
+      
+      // Liver Function
+      'SGPT': Icons.medical_information,
+      'SGOT': Icons.medical_information_outlined,
+      'Bilirubin': Icons.colorize,
+      'Albumin': Icons.science,
+      
+      // Urine Tests
+      'Urine': Icons.water,
+      'Protein': Icons.science,
+      
+      // Imaging
+      'X-Ray': Icons.image,
+      'MRI': Icons.medical_information,
+      'CT Scan': Icons.medical_services,
+      'Ultrasound': Icons.waves,
+      
+      // General Categories
+      'Thyroid': Icons.personal_injury,
+      'Kidney': Icons.medication_liquid,
+      'Liver': Icons.medical_services,
+      'Diabetes': Icons.water_drop,
+      'Cardiac': Icons.monitor_heart,
+      'Respiratory': Icons.air,
+      'Bone': Icons.accessibility_new,
+    };
+
+    // First try exact matches
+    if (metricIcons.containsKey(metricName)) {
+      return metricIcons[metricName]!;
+    }
+
+    // Then try partial matches
+    for (var entry in metricIcons.entries) {
+      if (metricName.toLowerCase().contains(entry.key.toLowerCase())) {
+        return entry.value;
+      }
+    }
+
+    // If no specific icon is found, try to match category-based keywords
+    final categoryKeywords = {
+      'test': Icons.science,
+      'count': Icons.numbers,
+      'rate': Icons.speed,
+      'index': Icons.analytics,
+      'level': Icons.show_chart,
+      'score': Icons.score,
+      'ratio': Icons.percent,
+      'blood': Icons.bloodtype,
+      'pressure': Icons.speed,
+      'volume': Icons.water_drop,
+      'enzyme': Icons.science,
+      'hormone': Icons.medication,
+      'vitamin': Icons.medication_liquid,
+      'mineral': Icons.diamond,
+      'protein': Icons.science,
+      'function': Icons.functions,
+    };
+
+    for (var entry in categoryKeywords.entries) {
+      if (metricName.toLowerCase().contains(entry.key.toLowerCase())) {
+        return entry.value;
+      }
+    }
+
+    // Default fallback icon
+    return Icons.analytics;
+  }
+
+  String _extractUnit(String value) {
+    final unitRegex = RegExp(r'\s*([a-zA-Z/%]+/?[a-zA-Z]*|mm\s*Hg)$');
+    final match = unitRegex.firstMatch(value);
+    return match?.group(1) ?? '';
+  }
+
+  List<Map<String, dynamic>> _processTestData(List<Map<String, dynamic>> kpiData) {
+    return kpiData.expand((kpi) {
+      if (kpi['value'] is Map<String, dynamic>) {
+        final Map<String, dynamic> nestedValues = kpi['value'];
+        return nestedValues.entries.map((entry) {
+          final currentValue = entry.value['value']?.toString() ?? 'N/A';
+          String? previousVal;
+          
+          if (hasMultipleReports && previousValues[kpi['title']] != null) {
+            previousVal = previousValues[kpi['title']][entry.key]?['value']?.toString();
+          }
+          
+          return <String, dynamic>{
+            'title': entry.key,
+            'value': currentValue,
+            'unit': entry.value['unit'] ?? _extractUnit(currentValue),
+            'previousValue': previousVal,
+            'full_name': entry.value['full_name'],
+            'medical_abbreviation': entry.value['medical_abbreviation'],
+            'referenceRange': entry.value['reference_range'],
+          };
+        });
+      } else {
+        return [<String, dynamic>{
+          ...kpi,
+          'previousValue': previousValues[kpi['title']]?['value']?.toString(),
+          'referenceRange': kpi['reference_range'],
+        }];
+      }
+    }).where((kpi) => 
+      kpi['value'] != null && 
+      kpi['value'].toString().toLowerCase() != 'n/a'
+    ).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final validKpis = _processTestData(widget.kpiData);
+
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF5c258d),
-        title: Row(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(width: 12),
-            Text(title, style: const TextStyle(color: Colors.white)),
-          ],
-        ),
+        title: Text(widget.title),
+        backgroundColor: widget.color,
       ),
-      floatingActionButton: kpiData.isNotEmpty
+      floatingActionButton: validKpis.isNotEmpty
           ? AIFloatingChatButton(
-              categoryTitle: title,
+              categoryTitle: widget.title,
               categoryContent: _generateCategoryContent(),
-              kpiData: kpiData,
+              kpiData: validKpis,
             )
           : null,
       body: SingleChildScrollView(
@@ -50,31 +239,16 @@ class CategoryDetailScreen extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: color,
+                  color: widget.color,
                 ),
               ),
               const SizedBox(height: 12),
-              FutureBuilder<Map<String, String>>(
-                future: AIService.getStoredCategorySummaries(),
-                builder: (context, snapshot) {
-                  String summary = 'Loading...';
-                  if (snapshot.hasData) {
-                    summary = snapshot.data![title] ?? 'No summary available';
-                  } else if (snapshot.hasError) {
-                    summary = 'Error loading summary';
-                  }
-                  return Text(
-                    summary,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.black87,
-                      height: 1.5,
-                    ),
-                  );
-                },
+              Text(
+                widget.summary ?? 'No summary available',
+                style: const TextStyle(fontSize: 16),
               ),
               const SizedBox(height: 24),
-              if (kpiData.isNotEmpty) ...[
+              if (validKpis.isNotEmpty) ...[
                 const Text(
                   'Latest Measurements',
                   style: TextStyle(
@@ -84,85 +258,23 @@ class CategoryDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                ...kpiData.map((kpi) => Padding(
+                ...validKpis.map((kpi) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: ComparisonIndicator(
                     title: kpi['title'],
-                    currentValue: kpi['value'],
+                    currentValue: kpi['value'].toString(),
                     previousValue: kpi['previousValue'],
-                    unit: kpi['unit'],
+                    unit: kpi['unit']?.toString() ?? '',
                     icon: _getIconForMetric(kpi['title']),
-                    color: color,
+                    color: widget.color,
+                    referenceRange: kpi['referenceRange'],
                   ),
                 )).toList(),
-              ] else
-                const Center(
-                  child: Text(
-                    'No measurements available for this category',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
+              ],
             ],
           ),
         ),
       ),
     );
-  }
-
-  IconData _getIconForMetric(String metricName) {
-    // Add metric-specific icons here
-    final metricIcons = {
-      'Blood Pressure': Icons.favorite,
-      'Heart Rate': Icons.monitor_heart,
-      'Temperature': Icons.thermostat,
-      // Add more mappings as needed
-    };
-
-    for (var entry in metricIcons.entries) {
-      if (metricName.toLowerCase().contains(entry.key.toLowerCase())) {
-        return entry.value;
-      }
-    }
-
-    return Icons.analytics; // Default icon
-  }
-
-  String _getCategorySummary(String category) {
-    switch (category.toLowerCase()) {
-      case 'vitals':
-        return 'Essential measurements of your body\'s basic functions, including heart rate, blood pressure, and temperature. These indicators provide a quick snapshot of your overall health status.';
-      case 'glucose':
-        return 'Blood sugar measurements that help monitor diabetes and metabolic health. Regular tracking ensures optimal glucose control and helps prevent complications.';
-      case 'lft':
-        return 'Liver Function Tests evaluate the health of your liver by measuring various enzymes and proteins. These tests help detect liver damage or disease.';
-      case 'vitamins':
-        return 'Essential nutrients that your body needs for proper functioning. Regular monitoring ensures optimal levels and helps prevent deficiencies.';
-      case 'thyroid':
-        return 'Hormones that regulate metabolism, energy, and growth. These tests help monitor thyroid function and detect any imbalances.';
-      case 'cbc':
-        return 'Complete Blood Count provides information about your blood cells, helping detect various conditions like anemia, infection, and blood disorders.';
-      default:
-        return 'Detailed health metrics and measurements to help you track and understand your medical condition.';
-    }
-  }
-
-  String _generateCategoryContent() {
-    final buffer = StringBuffer();
-    buffer.writeln('Category: $title');
-    buffer.writeln('');
-    
-    for (final kpi in kpiData) {
-      buffer.writeln('${kpi['title']}:');
-      buffer.writeln('Current Value: ${kpi['value']} ${kpi['unit']}');
-      if (kpi['previousValue'] != null && kpi['previousValue'] != 'N/A') {
-        buffer.writeln('Previous Value: ${kpi['previousValue']} ${kpi['unit']}');
-      }
-      buffer.writeln('');
-    }
-    
-    return buffer.toString();
   }
 }

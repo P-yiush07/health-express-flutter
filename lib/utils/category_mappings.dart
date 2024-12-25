@@ -1,61 +1,30 @@
 class CategoryMappings {
-  static const Map<String, List<String>> categoryMetrics = {
-    'Vitals': [
-      'Blood Pressure',
-      'Heart Rate',
-      'Respiratory Rate',
-      'Body Temperature',
-      'Oxygen Saturation',
-    ],
-    'Glucose': [
-      'Fasting Blood Sugar',
-      'Post Prandial Blood Sugar',
-      'HbA1c',
-      'Random Blood Sugar',
-      'R Blood Sugar',
-      'Blood Sugar',
-    ],
-    'LFT': [
-      'ALT',
-      'AST',
-      'Bilirubin',
-      'Albumin',
-      'Alkaline Phosphatase',
-      'Total Protein',
-    ],
-    'Vitamins': [
-      'Vitamin D',
-      'Vitamin B12',
-      'Vitamin B6',
-      'Folate',
-      'Vitamin C',
-    ],
-    'Thyroid': [
-      'TSH',
-      'T3',
-      'T4',
-      'Free T3',
-      'Free T4',
-    ],
-    'CBC': [
-      'Hemoglobin',
-      'Hematocrit',
-      'White Blood Cell Count',
-      'Red Blood Cell Count',
-      'Platelet Count',
-      'MCV',
-      'MCH',
-      'MCHC',
-    ],
-  };
-
-  static String? getCategoryForMetric(String metricName) {
-    for (var entry in categoryMetrics.entries) {
-      if (entry.value.any((metric) => 
-          metricName.toLowerCase().contains(metric.toLowerCase()))) {
-        return entry.key;
+  static String getCategoryForMetric(String metricName, Map<String, dynamic> apiData) {
+    // Check each category's tests in the API response
+    for (var entry in apiData.entries) {
+      final categoryName = entry.key;
+      final categoryData = entry.value as Map<String, dynamic>;
+      
+      if (categoryData['tests'] != null) {
+        final tests = categoryData['tests'] as Map<String, dynamic>;
+        
+        // Check if the metric name exists in this category's tests
+        if (tests.containsKey(metricName)) {
+          return categoryName;
+        }
+        
+        // Check nested objects (like Serum Electrolytes)
+        for (var test in tests.entries) {
+          if (test.value is Map) {
+            final nestedTests = test.value as Map<String, dynamic>;
+            if (nestedTests.containsKey(metricName)) {
+              return categoryName;
+            }
+          }
+        }
       }
     }
-    return null;
+    
+    return 'Other';
   }
 }

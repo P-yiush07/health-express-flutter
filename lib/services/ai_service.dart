@@ -324,9 +324,6 @@ class AIService {
         }
         await prefs.setString('generated_values', jsonEncode(storedValues));
         
-        // Save as latest KPIs with previous values
-        await KPIService.saveLatestKPIs(normalizedValues);
-        
         // Generate new summaries if report content is available
         if (reportContent != null) {
           await generateCategorySummaries(reportContent);
@@ -656,37 +653,15 @@ class AIService {
       
       // Remove the value at the specified index
       if (index >= 0 && index < storedValues.length) {
-        final removedEntry = storedValues.removeAt(index);
+        storedValues.removeAt(index);
         
         // Save the updated list back to storage
         await prefs.setString('generated_values', jsonEncode(storedValues));
         
-        // Update the latest KPIs if we're removing the most recent entry
-        if (index == storedValues.length) { // If we removed the last (most recent) entry
-          if (storedValues.isNotEmpty) {
-            // Get the most recent remaining entry
-            final latestEntry = storedValues.last;
-            final latestValues = List<Map<String, dynamic>>.from(latestEntry['values']);
-            await KPIService.saveLatestKPIs(latestValues);
-            
-            // Generate new summaries from the latest remaining entry
-            if (latestEntry.containsKey('report_content')) {
-              await generateCategorySummaries(latestEntry['report_content']);
-            } else {
-              // If no report content, clear summaries
-              await prefs.remove('category_summaries');
-            }
-          } else {
-            // If no entries left, clear everything
-            await KPIService.clearLatestKPIs();
-            await prefs.remove('category_summaries');
-          }
-        }
-        
         // Notify listeners to refresh UI
         _refreshController.add(null);
         
-        print('Value deleted successfully and KPIs updated');
+        print('Value deleted successfully');
       }
     } catch (e) {
       print('Error deleting stored value: $e');
