@@ -10,7 +10,7 @@ import '../widgets/stored_values_dialog.dart';
 import '../services/kpi_service.dart';
 
 class AIService {
-  static const String apiKey = 'sk-proj-Thr49483muTIk8kXanc9T3BlbkFJ49VRuw3yT77JcB0TlALk';
+  static const String apiKey = '';
   static List<ChatHistory> chatHistories = [];
   static Map<String, bool> isGeneratingResponse = {};
   static List<dynamic> storedValues = [];
